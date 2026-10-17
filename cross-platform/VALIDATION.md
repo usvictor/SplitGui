@@ -1,26 +1,29 @@
 # 当前验证记录
 
-2026-10-17，Linux 构建环境：
+2026-10-17，GitHub Actions 原生构建已通过：
+[运行 39029040119](https://github.com/usvictor/SplitGui/actions/runs/39029040119)。
 
-- Rust 核心 36 项安全回归测试全部通过，包括“路由已写入后命令超时”和“回滚失败保留日志”的补充回归。
-- Linux 桌面界面 `cargo check --locked` 通过。
-- Windows x64 GNU 目标完整 GUI / 核心 `cargo check --locked --target x86_64-pc-windows-gnu` 通过。
-- macOS ARM64 目标完整 GUI / 核心 `cargo check --locked --target aarch64-apple-darwin` 通过。
-- Windows x64 GNU/LLVM Release 已在 Linux 使用 Rust 1.99.1 + Zig 0.17.0 成功交叉链接；禁用此交叉构建的 LTO。文件为 PE32+ x86-64，5.3 MiB；DLL 导入仅为 Windows 系统 / UCRT / OpenGL 组件，没有 MinGW 或 Rust 专用运行库 DLL。
-- Windows EXE SHA-256：`100e88db3a23a0c5c2e381fd1c16b9c6e4a45f39b723737cb2a0a1686e2f6ba9`。
-- 尚未完成 macOS 链接打包及 Windows/macOS 实机网络验收；交叉编译或链接通过不代表目标操作系统运行成功。
+源提交：`2eeb0ca91610f966ed7ede50b52dd5eeda75bfc9`，Rust 1.99.1。
 
-GitHub Actions 已触发，但 [运行 38993565849](https://github.com/aibalabala/TailscaleSplitGUI/actions/runs/38993565849) 的 core-tests 在执行任何 step 前失败，steps 为空，日志接口返回 BlobNotFound；desktop 被跳过。当前接口没有提供可确认的具体原因，不将其归因于源码、账单或权限中的任何一种。
+- Ubuntu：格式检查通过，36 项安全回归测试通过。
+- Windows x64 MSVC：36 项测试通过，Release EXE 原生编译和 ZIP 打包成功。
+- macOS Apple Silicon 运行器：36 项测试通过，ARM64 和 Intel x64 Release 编译成功，lipo 合并 Universal app 成功；ad-hoc 签名及 codesign --verify --deep --strict 校验通过。
+- 两个平台的 artifact 均已成功上传。未完成真实设备 GUI、DNS、Tailscale 出口及 LAN 联合验收；仍为 Alpha。测试使用假 DNS 上游和假路由后端，不证明真实分流已通过。
+- Windows 包未做发布者代码签名；macOS 包未做 Apple 公证。
 
-当前可提供 **Windows 交叉编译 Alpha 包**，没有实机验收通过的稳定安装包；macOS Universal `.app` 尚未产出。双平台原生构建脚本和工作流已经提交，CI runner 问题排除后可重新运行；在两平台完成 ACCEPTANCE.md 前保持 Alpha / Draft。
+## 下载
 
-交叉构建复现（Linux，预先安装 Zig 0.17.0）：
+下载 Artifact 后解压，再解压其中的平台 ZIP。
 
-```bash
-rustup target add x86_64-pc-windows-gnullvm
-chmod +x cross-platform/scripts/zig-windows-linker.py
-SPLITGUI_ZIG=/absolute/path/to/zig \
-CARGO_PROFILE_RELEASE_LTO=false \
-CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER="$PWD/cross-platform/scripts/zig-windows-linker.py" \
-cargo build --release --locked --target x86_64-pc-windows-gnullvm --manifest-path cross-platform/Cargo.toml
-```
+| 平台 | Artifact | 外层 Artifact ZIP SHA-256 |
+|---|---|---|
+| Windows x64 | [SplitGUI-v2-Windows](https://github.com/usvictor/SplitGui/actions/runs/39029040119/artifacts/12100110294) | `0406dda5549bcb4b2fff5121e2d56bebaa3aa21ce48a77b770334710d7c36493` |
+| macOS Intel / Apple Silicon | [SplitGUI-v2-macOS](https://github.com/usvictor/SplitGui/actions/runs/39029040119/artifacts/12099632930) | `2fa1146d91581f6ebf258c37612a5524932df966c884d5053067b521b2c1267a` |
+
+Actions 当前保留期为 30 天，以上产物预计于 2026-11-16 到期，之后可重新构建。
+
+## 历史说明
+
+原仓库 aibalabala/TailscaleSplitGUI 的早期 Actions 在执行步骤前失败，原因未确认；不可据此认定私有仓库不能编译。本仓库首次原生构建已成功，替代此前仅有 Linux 交叉编译 Windows 包的交付状态。
+
+真实网络验收按 [ACCEPTANCE.md](ACCEPTANCE.md) 执行。
