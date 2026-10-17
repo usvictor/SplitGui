@@ -1,0 +1,4 @@
+cross-platform/target/
+cross-platform/dist/
+cross-platform/package/
+.DS_Store

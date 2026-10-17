@@ -1,0 +1,44 @@
+name: Cross-platform Rust build
+on:
+  push:
+    paths: ['cross-platform/**', '.github/workflows/cross-platform.yml']
+  pull_request:
+    paths: ['cross-platform/**', '.github/workflows/cross-platform.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --manifest-path cross-platform/Cargo.toml --check
+      - run: cargo test --locked --no-default-features --manifest-path cross-platform/Cargo.toml
+  desktop:
+    needs: core-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Native tests
+        run: cargo test --locked --no-default-features --manifest-path cross-platform/Cargo.toml
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./cross-platform/scripts/build-windows.ps1
+      - name: Build universal macOS app
+        if: runner.os == 'macOS'
+        run: bash cross-platform/scripts/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SplitGUI-v2-${{ runner.os }}
+          path: cross-platform/dist/*
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,26 @@
+[package]
+name = "tailscale-splitgui"
+version = "2.0.0-alpha.1"
+edition = "2021"
+rust-version = "1.85"
+
+[features]
+default = ["gui"]
+gui = ["dep:eframe"]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hickory-proto = "0.25"
+rand = "0.8"
+ctrlc = "3"
+eframe = { version = "0.31", optional = true, default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_SystemInformation"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
