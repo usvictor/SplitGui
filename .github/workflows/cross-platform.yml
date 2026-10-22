@@ -41,6 +41,7 @@ jobs:
         if: runner.os == 'macOS'
         run: bash cross-platform/scripts/build-macos.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: SplitGUI-v2-${{ runner.os }}
           path: cross-platform/dist/*
