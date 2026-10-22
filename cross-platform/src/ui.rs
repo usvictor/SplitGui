@@ -10,16 +10,16 @@ use tailscale_splitgui::{config::Config, platform, routes::Network, runtime, ser
 pub fn launch() -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([940., 760.])
-            .with_min_inner_size([760., 580.]),
+            .with_inner_size([1020., 780.])
+            .with_min_inner_size([800., 620.]),
         ..Default::default()
     };
     eframe::run_native(
-        "Tailscale SplitGUI · 2.0 Alpha",
+        "SplitGUI · 2.0 Alpha 2",
         options,
         Box::new(|cc| {
             load_font(&cc.egui_ctx);
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            apply_theme(&cc.egui_ctx);
             Ok(Box::new(App::new()))
         }),
     )
@@ -40,28 +40,43 @@ fn load_font(ctx: &egui::Context) {
         let mut paths = paths;
         if let Ok(system) = tailscale_splitgui::win_paths::system_directory() {
             if let Some(windows) = system.parent() {
-                paths.insert(0, windows.join("Fonts").join("msyh.ttc"));
+                for name in ["simsun.ttc", "simhei.ttf", "msyh.ttc"] {
+                    paths.insert(0, windows.join("Fonts").join(name));
+                }
             }
         }
         paths
     };
-    for p in paths {
-        if let Ok(bytes) = std::fs::read(p) {
-            let mut f = egui::FontDefinitions::default();
-            f.font_data
-                .insert("cjk".into(), egui::FontData::from_owned(bytes).into());
-            f.families
-                .get_mut(&egui::FontFamily::Proportional)
-                .unwrap()
-                .insert(0, "cjk".into());
-            f.families
-                .get_mut(&egui::FontFamily::Monospace)
-                .unwrap()
-                .push("cjk".into());
-            ctx.set_fonts(f);
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "splitgui-cjk".into(),
+        egui::FontData::from_static(include_bytes!("../assets/SplitGUISans-Regular.ttf")).into(),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .get_mut(&family)
+            .unwrap()
+            .insert(0, "splitgui-cjk".into());
+    }
+    // The bundled font covers common Chinese. System fonts supply rarer glyphs.
+    for path in paths {
+        if let Ok(bytes) = std::fs::read(path) {
+            fonts.font_data.insert(
+                "system-cjk".into(),
+                egui::FontData::from_owned(bytes).into(),
+            );
+            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                fonts
+                    .families
+                    .get_mut(&family)
+                    .unwrap()
+                    .insert(1, "system-cjk".into());
+            }
             break;
         }
     }
+    ctx.set_fonts(fonts);
 }
 
 fn user_dir() -> PathBuf {
@@ -81,6 +96,7 @@ fn user_dir() -> PathBuf {
 }
 
 struct App {
+    tab: usize,
     domains: String,
     dns: String,
     cidrs: String,
@@ -97,7 +113,7 @@ impl App {
         let config = runtime::read_config(&user_dir().join("config.json"))
             .or_else(|_| runtime::read_config(&platform::data_dir().join("config.json")))
             .unwrap_or_default();
-        let mut app=Self {domains:config.domestic_domains.join("\n"),dns:config.domestic_dns.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"),cidrs:config.china_routes.join("\n"),interface:config.physical_interface,networks:vec![],status:None,message:"首次运行请检查网卡和国内域名，然后启用。需要 Tailscale 已连接出口并允许局域网访问。".into(),pending:None,discovery:None,last_read:Instant::now()-Duration::from_secs(3)};
+        let mut app=Self {tab:0,domains:config.domestic_domains.join("\n"),dns:config.domestic_dns.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"),cidrs:config.china_routes.join("\n"),interface:config.physical_interface,networks:vec![],status:None,message:"首次运行请检查网卡和国内域名，然后启用。需要 Tailscale 已连接出口并允许局域网访问。".into(),pending:None,discovery:None,last_read:Instant::now()-Duration::from_secs(3)};
         app.discover();
         app
     }
@@ -206,46 +222,169 @@ impl eframe::App for App {
             self.status = runtime::read_status().ok();
             self.last_read = Instant::now();
         }
-        egui::CentralPanel::default().show(ctx,|ui|{
-            ui.heading("Tailscale SplitGUI");ui.label("Windows / macOS · Rust 共享核心 · 2.0 Alpha");ui.add_space(10.);
-            egui::Frame::group(ui.style()).show(ui,|ui|{
-                let(state,text)=self.status.as_ref().map(|s|(s.state.as_str(),s.message.as_str())).unwrap_or(("stopped","尚未启用"));
-                let color=match state{"active"=>egui::Color32::LIGHT_GREEN,"error"|"degraded"|"unknown"=>egui::Color32::YELLOW,_=>egui::Color32::LIGHT_BLUE};
-                ui.colored_label(color,format!("状态：{state}"));ui.label(text);
-                if let Some(s)=&self.status{ui.label(format!("验证通过的 DNS 回答：{}　失败：{}",s.answers,s.failures));if let Some(e)=&s.last_dns_error{ui.colored_label(egui::Color32::YELLOW,e);}}
-            });
-            ui.add_space(8.);
-            ui.horizontal(|ui|{
-                if ui.add_enabled(self.pending.is_none(),egui::Button::new("启用 / 应用设置")).clicked(){self.start();}
-                if ui.add_enabled(self.pending.is_none(),egui::Button::new("停止 / 恢复原网络")).clicked(){self.action("disable",None);}
-                if self.pending.is_some(){ui.spinner();}
-            });ui.label(&self.message);ui.separator();
-            egui::ScrollArea::vertical().show(ui,|ui|{
-                ui.strong("本地网络");
-                egui::ComboBox::from_label("物理网卡").selected_text(self.interface.as_deref().unwrap_or("自动（仅一个候选时）")).show_ui(ui,|ui|{
-                    ui.selectable_value(&mut self.interface,None,"自动");
-                    for n in &self.networks{ui.selectable_value(&mut self.interface,Some(n.interface.clone()),format!("{} · {} → {}",n.interface,n.address,n.gateway));}
-                });if ui.button("刷新网卡").clicked(){self.discover();}
-                ui.add_space(8.);ui.strong("国内域名（每行一个，包含其子域名）");
-                ui.label("只管理这里的域名。未列出的海外域名继续使用当前系统 / Tailscale DNS。局域网和 Tailnet 保留名称不允许加入。");
-                ui.add(egui::TextEdit::multiline(&mut self.domains).desired_rows(10).desired_width(f32::INFINITY));
-                if ui.button("导入旧版域名列表").clicked(){self.import_legacy();}
-                ui.add_space(8.);ui.strong("国内 DNS（每行一个 IPv4）");
-                ui.add(egui::TextEdit::multiline(&mut self.dns).desired_rows(2).desired_width(f32::INFINITY));
-                ui.label("只在国内 DNS 之间重试。超时 / 空响应 / 异常 IP 返回失败，不回退到海外 DNS。");
-                ui.collapsing("中国 IPv4 路由（可选，粘贴经核对的 CIDR 列表）",|ui|{
-                    ui.label("保留系统原有中国路由。Windows 新安装如需 IP 级国内分流，可导入完整列表；未导入时提供上述域名的动态直连。大量路由首次启用较慢。");
-                    ui.add(egui::TextEdit::multiline(&mut self.cidrs).desired_rows(6).desired_width(f32::INFINITY));
+        egui::TopBottomPanel::top("header")
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::WHITE)
+                    .inner_margin(20),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("SplitGUI")
+                            .size(28.)
+                            .strong()
+                            .color(egui::Color32::from_rgb(23, 44, 78)),
+                    );
+                    ui.add_space(12.);
+                    ui.label(
+                        egui::RichText::new("让国内直连，让海外保持原出口")
+                            .color(egui::Color32::from_rgb(92, 107, 128)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.small("2.0 · Alpha 2");
+                    });
                 });
-                ui.collapsing("运行范围与自检说明",|ui|{
-                    ui.label("启用后安装后台任务，重启时会重新验收；关闭窗口不停止分流。停止按钮同时取消自动启动。请先停止旧版 SplitGUI，避免双写路由。");
-                    ui.label("国内域名使用 IPv4；AAAA / HTTPS / SVCB 返回无数据，其他 DNS 类型不接管。IPv6 全分流不在此 Alpha 范围。");
-                    ui.label("浏览器自带 DoH、应用代理或独立 DNS 可能绕过系统规则。系统自检通过不代表这些应用已通过；请关闭其独立 DNS 后再验收。");
-                    ui.label("本版使用明文国内 UDP/TCP DNS；只对明确配置的域名发送请求，不能称为加密 DNS 或零泄漏方案。");
-                    ui.label("实机发布前需在 Windows / macOS 完成断网、切换 Wi-Fi、休眠恢复和卸载验收。");
+            });
+        egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.small("关闭窗口后后台继续运行；需要退出分流时请点击“停止并恢复”。");
+            });
+        });
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                card(ui, |ui| {
+                    let (state, message) = self.status.as_ref().map(|s| (s.state.as_str(), s.message.as_str())).unwrap_or(("stopped", "选择本地网卡，确认 Tailscale 出口后即可启用。"));
+                    let message = message.to_owned();
+                    let (label, color) = match state {
+                        "active" => ("分流已启用", egui::Color32::from_rgb(21, 128, 88)),
+                        "starting" => ("正在验证网络", egui::Color32::from_rgb(37, 99, 235)),
+                        "error" => ("启用失败", egui::Color32::from_rgb(185, 50, 50)),
+                        "degraded" => ("部分请求异常", egui::Color32::from_rgb(170, 105, 20)),
+                        "unknown" => ("状态待确认", egui::Color32::from_rgb(170, 105, 20)),
+                        _ => ("尚未启用", egui::Color32::from_rgb(92, 107, 128)),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(label).size(23.).strong().color(color));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.add_enabled(self.pending.is_none(), egui::Button::new("停止并恢复").min_size(egui::vec2(116., 38.))).clicked() { self.action("disable", None); }
+                            if ui.add_enabled(self.pending.is_none(), egui::Button::new(egui::RichText::new("启用 / 应用设置").color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(37, 99, 235)).min_size(egui::vec2(148., 38.))).clicked() { self.start(); }
+                        });
+                    });
+                    ui.add_space(8.);
+                    // Clone before interaction so action handlers can update App safely.
+                    ui.label(&message);
+                    if let Some(status) = &self.status {
+                        ui.add_space(10.);
+                        ui.horizontal(|ui| {
+                            ui.label(format!("已验证回答  {}", status.answers)); ui.separator();
+                            ui.label(format!("失败请求  {}", status.failures));
+                        });
+                        if let Some(error) = &status.last_dns_error { ui.colored_label(egui::Color32::from_rgb(185, 50, 50), error); }
+                    }
+                });
+                ui.add_space(12.);
+                card(ui, |ui| {
+                    ui.horizontal(|ui| { if self.pending.is_some() { ui.spinner(); } ui.strong("操作反馈"); });
+                    ui.add_space(6.);
+                    ui.label(&self.message);
+                    if ui.small_button("复制诊断信息").clicked() {
+                        let state = self.status.as_ref().map(|s| format!("{}: {}", s.state, s.message)).unwrap_or_else(|| "尚无后台状态".into());
+                        ctx.copy_text(format!("SplitGUI 2.0 Alpha 2\n系统：{}\n操作：{}\n后台：{}", std::env::consts::OS, self.message, state));
+                    }
+                });
+                ui.add_space(16.);
+                ui.horizontal(|ui| {
+                    for (index, label) in ["连接设置", "国内域名", "高级与帮助"].iter().enumerate() { ui.selectable_value(&mut self.tab, index, *label); }
+                });
+                ui.add_space(10.);
+                card(ui, |ui| {
+                    ui.add_enabled_ui(self.pending.is_none(), |ui| {
+                        match self.tab {
+                            0 => {
+                                section(ui, "本地网络", "国内连接通过这张网卡直连。多张网卡同时在线时，请手动选择。");
+                                ui.horizontal(|ui| {
+                                    egui::ComboBox::from_id_salt("network").width(480.).selected_text(self.interface.as_deref().unwrap_or("自动选择（仅一个候选时）")).show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.interface, None, "自动选择");
+                                        for n in &self.networks { ui.selectable_value(&mut self.interface, Some(n.interface.clone()), format!("网卡 {}   ·   本机 {}   ·   网关 {}", n.interface, n.address, n.gateway)); }
+                                    });
+                                    if ui.add_enabled(self.discovery.is_none(), egui::Button::new("刷新网卡")).clicked() { self.discover(); }
+                                    if self.discovery.is_some() { ui.spinner(); }
+                                });
+                                ui.add_space(24.);
+                                section(ui, "国内 DNS", "每行一个 IPv4 地址，仅用于“国内域名”列表中的请求。");
+                                ui.add(egui::TextEdit::multiline(&mut self.dns).desired_rows(3).desired_width(f32::INFINITY).margin(12.));
+                                ui.add_space(20.);
+                                section(ui, "启用前确认", "1. Tailscale 已连接并选中出口节点。\n2. 已开启 Allow Local Network Access（允许局域网访问）。\n3. 已停止旧版 SplitGUI，避免同时修改路由。");
+                                ui.small("海外域名保留原解析路径；局域网设备继续走本地网络。");
+                            }
+                            1 => {
+                                let count = self.domains.lines().filter(|s| !s.trim().is_empty() && !s.trim().starts_with('#')).count();
+                                section(ui, &format!("国内域名 · {count} 条"), "每行一个域名，例如 qq.com；自动包含子域名，无需填写 https://。");
+                                ui.add(egui::TextEdit::multiline(&mut self.domains).desired_rows(14).desired_width(f32::INFINITY).margin(12.));
+                                ui.add_space(10.);
+                                if ui.button("导入旧版域名列表").clicked() { self.import_legacy(); }
+                                ui.small("修改后点击顶部“启用 / 应用设置”生效。局域网和 Tailnet 保留名称不会被接管。");
+                            }
+                            _ => {
+                                section(ui, "中国 IPv4 路由（可选）", "可粘贴经过核对的 CIDR 列表，每行一个。不填写时按国内域名动态直连。大量路由首次启用较慢。");
+                                ui.add(egui::TextEdit::multiline(&mut self.cidrs).desired_rows(5).desired_width(f32::INFINITY).margin(12.));
+                                ui.add_space(18.);
+                                ui.collapsing("DNS 与浏览器设置", |ui| {
+                                    ui.label("国内 DNS 失败时不会回退到海外 DNS，也不会更换出口。浏览器安全 DNS（DoH）、独立代理和应用缓存可能绕过系统分流，需要单独检查。");
+                                    ui.label("当前国内域名采用 IPv4 策略；使用明文 UDP/TCP DNS，尚不支持完整 IPv6 分流。");
+                                });
+                                ui.collapsing("状态与恢复", |ui| {
+                                    ui.label("只有 DNS 和路由验证通过后才显示已启用。停止按钮撤销本程序规则并取消自动启动，保留原出口节点。");
+                                    ui.label(format!("后台记录目录：{}", platform::data_dir().display()));
+                                    ui.label("此版本已提供自动测试，真实网络仍需验证国内直连、海外出口及局域网连通性。");
+                                });
+                            }
+                        }
+                    });
                 });
             });
         });
         ctx.request_repaint_after(Duration::from_millis(200));
     }
+}
+
+fn apply_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::light();
+    visuals.panel_fill = egui::Color32::from_rgb(242, 245, 250);
+    visuals.override_text_color = Some(egui::Color32::from_rgb(35, 49, 70));
+    visuals.selection.bg_fill = egui::Color32::from_rgb(210, 227, 255);
+    ctx.set_visuals(visuals);
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(10., 10.);
+    style.spacing.button_padding = egui::vec2(14., 9.);
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(16.));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Button, egui::FontId::proportional(16.));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Small, egui::FontId::proportional(13.));
+    ctx.set_style(style);
+}
+fn card(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(egui::Color32::WHITE)
+        .corner_radius(12)
+        .stroke(egui::Stroke::new(
+            1_f32,
+            egui::Color32::from_rgb(223, 230, 240),
+        ))
+        .inner_margin(18)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            content(ui);
+        });
+}
+fn section(ui: &mut egui::Ui, title: &str, description: &str) {
+    ui.label(egui::RichText::new(title).size(19.).strong());
+    ui.label(egui::RichText::new(description).color(egui::Color32::from_rgb(94, 109, 131)));
+    ui.add_space(8.);
 }

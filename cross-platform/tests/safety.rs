@@ -541,3 +541,31 @@ fn mac_route_table_shorthand_matches_without_broadening() {
     assert!(!platform::mac_destination_matches("8.8.8.8", "8.8.8.0/24"));
     assert!(!platform::mac_destination_matches("default", "0.0.0.0/0"));
 }
+
+#[test]
+fn admin_report_preserves_chinese_and_rejects_stale_result() {
+    let path = std::env::temp_dir().join(format!("splitgui-admin-{}.json", rand::random::<u64>()));
+    std::fs::write(&path, serde_json::to_vec(&serde_json::json!({"request":"current", "error":"检查本地网卡失败：请先允许局域网访问"})).unwrap()).unwrap();
+    assert_eq!(
+        tailscale_splitgui::service::admin_report(&path, "current")
+            .unwrap()
+            .as_deref(),
+        Some("检查本地网卡失败：请先允许局域网访问")
+    );
+    assert!(tailscale_splitgui::service::admin_report(&path, "previous").is_err());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn powershell_chinese_output_and_errors_are_utf8() {
+    assert_eq!(
+        platform::powershell("Write-Output '中文网卡：以太网'").unwrap(),
+        "中文网卡：以太网"
+    );
+    let error = platform::powershell("throw '请开启允许局域网访问'")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("请开启允许局域网访问"), "{error}");
+    assert!(!error.contains('\u{fffd}'), "{error}");
+}

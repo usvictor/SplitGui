@@ -9,7 +9,7 @@ use crate::{
 };
 #[cfg(not(any(windows, target_os = "macos")))]
 use anyhow::bail;
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use std::{
     net::{Ipv4Addr, TcpListener},
     path::Path,
@@ -110,8 +110,8 @@ pub fn install(config_path: &Path) -> Result<()> {
     require_admin()?;
     let config = runtime::read_config(config_path)?;
     // Validate BEFORE disturbing a running session. Exit-node DNS remains untouched.
-    platform::exit_node()?;
-    platform::select_network(&config)?;
+    platform::exit_node().context("检查 Tailscale 出口失败")?;
+    platform::select_network(&config).context("检查本地网卡失败")?;
     disable()?;
     let dir = data_dir();
     std::fs::create_dir_all(&dir)?;
@@ -205,6 +205,45 @@ fn secure_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AdminResult {
+    request: String,
+    error: Option<String>,
+}
+
+/// Reports are written only in the protected service directory, never to a path
+/// supplied by an unprivileged caller. A request ID prevents stale error reuse.
+pub fn admin_action(action: &str, config: Option<&Path>, request: &str) -> Result<()> {
+    ensure!(
+        ["install", "disable"].contains(&action),
+        "不允许的管理员操作"
+    );
+    ensure!(
+        request.len() == 32 && request.bytes().all(|b| b.is_ascii_hexdigit()),
+        "无效的操作编号"
+    );
+    require_admin()?;
+    let dir = data_dir();
+    std::fs::create_dir_all(&dir)?;
+    secure_dir(&dir).context("无法保护后台状态目录")?;
+    let result = match action {
+        "install" => install(config.context("缺少配置文件")?),
+        _ => disable(),
+    };
+    let report = AdminResult {
+        request: request.into(),
+        error: result.as_ref().err().map(|e| format!("{e:#}")),
+    };
+    atomic_json(&dir.join("admin-result.json"), &report).context("无法保存管理员操作结果")?;
+    result
+}
+
+pub fn admin_report(path: &Path, request: &str) -> Result<Option<String>> {
+    let report: AdminResult = serde_json::from_slice(&std::fs::read(path)?)?;
+    ensure!(report.request == request, "操作结果已过期，请重试");
+    Ok(report.error)
+}
+
 /// The GUI is unprivileged; only fixed subcommands are elevated by the OS.
 pub fn elevate(action: &str, config: Option<&Path>) -> Result<()> {
     ensure!(["install", "disable"].contains(&action), "不允许的提权命令");
@@ -233,21 +272,41 @@ pub fn elevate(action: &str, config: Option<&Path>) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        // Windows argument quoting must survive Start-Process's ArgumentList join.
+        use std::os::windows::process::CommandExt;
+        let request = format!("{:032x}", rand::random::<u128>());
+        // Start-Process joins ArgumentList; keep the config path explicitly quoted.
         let argument = if let Some(p) = config {
-            format!("{action} \"{}\"", p.to_string_lossy())
+            format!("admin {action} {request} \"{}\"", p.to_string_lossy())
         } else {
-            action.into()
+            format!("admin {action} {request}")
         };
-        let script=format!("$ErrorActionPreference='Stop'; $p=Start-Process -FilePath {} -ArgumentList {} -Verb RunAs -Wait -PassThru; if($p.ExitCode -ne 0){{throw 'Administrator operation failed; see status/log'}}",ps_quote(&exe.to_string_lossy()),ps_quote(&argument));
+        let script = platform::powershell_script(&format!(
+            "$p=Start-Process -FilePath {} -ArgumentList {} -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode",
+            ps_quote(&exe.to_string_lossy()), ps_quote(&argument)
+        ));
         let output = Command::new(crate::win_paths::powershell()?)
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000)
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &script,
+            ])
             .output()?;
-        ensure!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if !output.status.success() {
+            if let Ok(Some(error)) = admin_report(&data_dir().join("admin-result.json"), &request) {
+                anyhow::bail!("{error}");
+            }
+            let detail = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("管理员操作未完成（退出码 {:?}）。请确认已允许 UAC 授权；若已授权，请检查后台目录权限。{}", output.status.code(), detail.trim());
+        }
+        // An exit code alone must not be mistaken for a successful operation.
+        if let Some(error) = admin_report(&data_dir().join("admin-result.json"), &request)
+            .context("未收到本次管理员操作结果")?
+        {
+            anyhow::bail!("{error}");
+        }
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {

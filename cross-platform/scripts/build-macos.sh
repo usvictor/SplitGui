@@ -15,8 +15,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>TailscaleSplitGUI</string>
 <key>CFBundleExecutable</key><string>TailscaleSplitGUI</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>2.0.0</string>
-<key>CFBundleVersion</key><string>20001</string>
+<key>CFBundleShortVersionString</key><string>2.0.0-alpha.2</string>
+<key>CFBundleVersion</key><string>20002</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

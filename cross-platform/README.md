@@ -1,6 +1,6 @@
 # SplitGUI v2 — Windows / macOS Rust 重构
 
-当前版本是 **2.0.0 Alpha**，不是已经完成实机网络验收的稳定版。
+当前版本是 **2.0.0 Alpha 2**，不是已经完成实机网络验收的稳定版。
 本仓库迁入 Rust v2，使用同一份 Rust 核心和 egui/eframe 桌面界面。旧 Swift 版仍位于原 TailscaleSplitGUI 仓库。
 
 ## 使用
@@ -87,3 +87,10 @@ Windows 执行 `cross-platform/scripts/build-windows.ps1`；macOS 执行 `bash c
 实机验收清单见 `ACCEPTANCE.md`。
 
 实现参考：[Microsoft NRPT](https://learn.microsoft.com/powershell/module/dnsclient/add-dnsclientnrptrule)、[IP Helper GetBestRoute2](https://learn.microsoft.com/windows/win32/api/netioapi/nf-netioapi-getbestroute2)、[Tailscale Exit Nodes](https://tailscale.com/docs/features/exit-nodes)、macOS 本机 `man 5 resolver`。
+
+## Alpha 2 界面与 Windows 错误修复
+
+- 浅色卡片布局，连接 / 国内域名 / 高级帮助分区；状态中文化，可复制诊断信息。
+- 内置中文字体，Windows GUI 不弹控制台窗口。
+- PowerShell 正常输出和错误统一 UTF-8；管理员子进程通过受保护结果文件回传真实错误，用操作编号防止误读旧结果。
+- 启用失败仍保留原出口。看到具体错误后可确认是出口、LAN、网卡、目录权限还是后台启动问题；旧版通用报错本身不足以定位原因。

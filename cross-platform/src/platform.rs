@@ -78,7 +78,20 @@ pub fn powershell(script: &str) -> Result<String> {
     #[cfg(not(windows))]
     let exe = PathBuf::from("/nonexistent/windows-powershell");
     // All dynamic data is validated or single-quoted with apostrophes escaped.
-    run(&exe, &["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &format!("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); {script}")])
+    run(
+        &exe,
+        &[
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &powershell_script(script),
+        ],
+    )
+}
+/// Both normal output and exception messages must use UTF-8 when captured by Rust.
+pub fn powershell_script(script: &str) -> String {
+    format!("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; try {{ {script} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}")
 }
 pub fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))

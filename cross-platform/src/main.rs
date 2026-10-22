@@ -1,3 +1,4 @@
+#![cfg_attr(all(windows, feature = "gui"), windows_subsystem = "windows")]
 #[cfg(feature = "gui")]
 mod ui;
 use anyhow::{bail, Result};
@@ -12,6 +13,9 @@ fn main() {
 fn entry() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("admin") if args.len() == 4 || args.len() == 5 => {
+            service::admin_action(&args[2], args.get(4).map(std::path::Path::new), &args[3])
+        }
         Some("supervise") => {
             service::require_admin()?;
             service::supervisor()

@@ -33,6 +33,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./cross-platform/scripts/build-windows.ps1
+      - name: Windows GUI startup and screenshot
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./cross-platform/scripts/smoke-windows.ps1
       - name: Build universal macOS app
         if: runner.os == 'macOS'
         run: bash cross-platform/scripts/build-macos.sh
