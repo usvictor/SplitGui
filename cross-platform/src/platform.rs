@@ -91,7 +91,7 @@ pub fn powershell(script: &str) -> Result<String> {
 }
 /// Both normal output and exception messages must use UTF-8 when captured by Rust.
 pub fn powershell_script(script: &str) -> String {
-    format!("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; try {{ {script} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}")
+    format!("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; $env:PSModulePath=[IO.Path]::Combine($PSHOME,'Modules'); try {{ {script} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}")
 }
 pub fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))

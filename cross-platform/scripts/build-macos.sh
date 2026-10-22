@@ -21,6 +21,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+mkdir -p "$app/Contents/Resources"
+cp assets/NotoSansSC-OFL.txt "$app/Contents/Resources/FONT-LICENSE.txt"
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 ditto -c -k --sequesterRsrc --keepParent "$app" dist/TailscaleSplitGUI-v2-macOS-universal.zip

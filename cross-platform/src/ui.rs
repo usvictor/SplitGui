@@ -9,6 +9,8 @@ use tailscale_splitgui::{config::Config, platform, routes::Network, runtime, ser
 
 pub fn launch() -> Result<()> {
     let options = eframe::NativeOptions {
+        #[cfg(windows)]
+        renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1020., 780.])
             .with_min_inner_size([800., 620.]),

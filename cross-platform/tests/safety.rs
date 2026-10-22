@@ -569,3 +569,10 @@ fn powershell_chinese_output_and_errors_are_utf8() {
     assert!(error.contains("请开启允许局域网访问"), "{error}");
     assert!(!error.contains('\u{fffd}'), "{error}");
 }
+
+#[cfg(windows)]
+#[test]
+fn powershell_uses_windows_security_module() {
+    let result = platform::powershell("(Get-Acl -LiteralPath $env:TEMP).GetType().Name").unwrap();
+    assert_eq!(result, "DirectorySecurity");
+}
